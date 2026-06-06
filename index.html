@@ -172,7 +172,7 @@
     // Heutiges Datum als Standard setzen
     document.getElementById("datum").valueAsDate = new Date();
 
-    const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbxZEBbTJS25VKr0e5xjM01JgGW2obUXinlYKEmysQPpr6RsAkgYmMh851zARCSkOy0Ldw/exec";
+    const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzlUcw-sJFQLJouP44M_oC2Ko2ZKXv-DuR1VkHTZQKo-lUsB0Hk42fgJcP1v2NHolpd1Q/exec";
 
     document.getElementById("zeitForm").addEventListener("submit", async function (e) {
       e.preventDefault();
@@ -195,6 +195,18 @@
         return;
       }
 
+      // Zeitberechnung
+      const [bh, bm] = beginn.split(":").map(Number);
+      const [eh, em] = ende.split(":").map(Number);
+      const bruttoMinuten = (eh * 60 + em) - (bh * 60 + bm);
+      const bruttoStunden = bruttoMinuten / 60;
+
+      let pauseMinuten = 0;
+      if (bruttoStunden >= 8) pauseMinuten = 45;
+      else if (bruttoStunden >= 6) pauseMinuten = 30;
+
+      const nettoStunden = (bruttoMinuten - pauseMinuten) / 60;
+
       const data = {
         name:     document.getElementById("name").value,
         fahrzeug: document.getElementById("fahrzeug").value,
@@ -202,6 +214,9 @@
         beginn,
         ende,
         notiz:    document.getElementById("notiz").value,
+        brutto:   Math.round(bruttoStunden * 100) / 100,
+        pause:    pauseMinuten,
+        netto:    Math.round(nettoStunden * 100) / 100,
       };
 
       try {

@@ -85,6 +85,29 @@
       background: #fff;
     }
 
+    .fahrzeug-row {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .fahrzeug-row select {
+      width: 80px;
+      flex: none;
+    }
+
+    .fahrzeug-sep {
+      font-size: 1rem;
+      font-weight: 600;
+      color: #2d3748;
+      white-space: nowrap;
+    }
+
+    .fahrzeug-row input[type="number"] {
+      width: 90px;
+      flex: none;
+    }
+
     .row {
       display: grid;
       grid-template-columns: 1fr 1fr;
@@ -138,8 +161,16 @@
       </div>
 
       <div class="form-group">
-        <label for="fahrzeug">Fahrzeug</label>
-        <input type="text" id="fahrzeug" name="fahrzeug" placeholder="z.B. EU-VM 301" required />
+        <label>Fahrzeug</label>
+        <div class="fahrzeug-row">
+          <select id="fahrzeug-prefix" required>
+            <option value="">--</option>
+            <option value="EU">EU</option>
+            <option value="SLE">SLE</option>
+          </select>
+          <span class="fahrzeug-sep">-VM</span>
+          <input type="number" id="fahrzeug-nummer" placeholder="312" min="1" required style="width:90px;flex:none;" />
+        </div>
       </div>
 
       <div class="form-group">
@@ -209,7 +240,7 @@
 
       const data = {
         name:     document.getElementById("name").value,
-        fahrzeug: document.getElementById("fahrzeug").value,
+        fahrzeug: document.getElementById("fahrzeug-prefix").value + "-VM " + document.getElementById("fahrzeug-nummer").value,
         datum:    document.getElementById("datum").value,
         beginn,
         ende,

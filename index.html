@@ -144,6 +144,45 @@
 
     .status.success { background: #c6f6d5; color: #276749; display: block; }
     .status.error   { background: #fed7d7; color: #9b2c2c; display: block; }
+
+    #addSchichtBtn {
+      width: 100%;
+      padding: 0.6rem;
+      background: #fff;
+      color: #3182ce;
+      font-size: 0.95rem;
+      font-weight: 600;
+      border: 2px dashed #3182ce;
+      border-radius: 8px;
+      cursor: pointer;
+      margin-bottom: 1.25rem;
+      transition: background 0.2s;
+    }
+    #addSchichtBtn:hover { background: #ebf8ff; }
+
+    .schicht-row { position: relative; }
+    .schicht-row + .schicht-row { margin-top: 0.5rem; padding-top: 0.75rem; border-top: 1.5px dashed #e2e8f0; }
+
+    .schicht-label {
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: #a0aec0;
+      margin-bottom: 0.3rem;
+    }
+
+    .remove-schicht {
+      position: absolute;
+      top: 0.75rem;
+      right: 0;
+      background: none;
+      border: none;
+      color: #fc8181;
+      font-size: 1.2rem;
+      cursor: pointer;
+      line-height: 1;
+      padding: 0 0.2rem;
+    }
+    .remove-schicht:hover { color: #e53e3e; }
   </style>
 </head>
 <body>
@@ -178,16 +217,22 @@
         <input type="date" id="datum" name="datum" required />
       </div>
 
-      <div class="row">
-        <div class="form-group">
-          <label for="beginn">Arbeitsbeginn</label>
-          <input type="time" id="beginn" name="beginn" required />
-        </div>
-        <div class="form-group">
-          <label for="ende">Arbeitsende</label>
-          <input type="time" id="ende" name="ende" required />
+      <div id="schichten-container">
+        <div class="schicht-row" data-index="0">
+          <div class="row">
+            <div class="form-group">
+              <label>Arbeitsbeginn</label>
+              <input type="time" name="beginn" required />
+            </div>
+            <div class="form-group">
+              <label>Arbeitsende</label>
+              <input type="time" name="ende" required />
+            </div>
+          </div>
         </div>
       </div>
+
+      <button type="button" id="addSchichtBtn">+ Schicht hinzufügen</button>
 
       <div class="form-group">
         <label for="notiz">Notiz (optional)</label>
@@ -205,6 +250,47 @@
 
     const APPS_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbzlUcw-sJFQLJouP44M_oC2Ko2ZKXv-DuR1VkHTZQKo-lUsB0Hk42fgJcP1v2NHolpd1Q/exec";
 
+    // Schicht-Label aktualisieren
+    function updateSchichtLabels() {
+      const rows = document.querySelectorAll(".schicht-row");
+      rows.forEach((row, i) => {
+        let lbl = row.querySelector(".schicht-label");
+        if (!lbl) {
+          lbl = document.createElement("div");
+          lbl.className = "schicht-label";
+          row.insertBefore(lbl, row.firstChild);
+        }
+        lbl.textContent = rows.length > 1 ? `Schicht ${i + 1}` : "";
+        const removeBtn = row.querySelector(".remove-schicht");
+        if (removeBtn) removeBtn.style.display = rows.length > 1 ? "" : "none";
+      });
+    }
+
+    // Neue Schicht hinzufügen
+    document.getElementById("addSchichtBtn").addEventListener("click", function () {
+      const container = document.getElementById("schichten-container");
+      const div = document.createElement("div");
+      div.className = "schicht-row";
+      div.innerHTML = `
+        <button type="button" class="remove-schicht" title="Schicht entfernen">×</button>
+        <div class="row">
+          <div class="form-group">
+            <label>Arbeitsbeginn</label>
+            <input type="time" name="beginn" required />
+          </div>
+          <div class="form-group">
+            <label>Arbeitsende</label>
+            <input type="time" name="ende" required />
+          </div>
+        </div>`;
+      div.querySelector(".remove-schicht").addEventListener("click", function () {
+        div.remove();
+        updateSchichtLabels();
+      });
+      container.appendChild(div);
+      updateSchichtLabels();
+    });
+
     document.getElementById("zeitForm").addEventListener("submit", async function (e) {
       e.preventDefault();
 
@@ -215,53 +301,68 @@
       status.className = "status";
       status.textContent = "";
 
-      const beginn = document.getElementById("beginn").value;
-      const ende   = document.getElementById("ende").value;
-
-      if (beginn >= ende) {
-        status.className = "status error";
-        status.textContent = "Arbeitsende muss nach dem Arbeitsbeginn liegen.";
-        btn.disabled = false;
-        btn.textContent = "Eintragen";
-        return;
+      // Alle Schichten sammeln
+      const schichtRows = document.querySelectorAll(".schicht-row");
+      const schichten = [];
+      for (const row of schichtRows) {
+        const beginn = row.querySelector("input[name='beginn']").value;
+        const ende   = row.querySelector("input[name='ende']").value;
+        if (beginn >= ende) {
+          status.className = "status error";
+          status.textContent = schichtRows.length > 1
+            ? `Arbeitsende muss nach dem Arbeitsbeginn liegen (Schicht ${schichten.length + 1}).`
+            : "Arbeitsende muss nach dem Arbeitsbeginn liegen.";
+          btn.disabled = false;
+          btn.textContent = "Eintragen";
+          return;
+        }
+        schichten.push({ beginn, ende });
       }
 
-      // Zeitberechnung
-      const [bh, bm] = beginn.split(":").map(Number);
-      const [eh, em] = ende.split(":").map(Number);
-      const bruttoMinuten = (eh * 60 + em) - (bh * 60 + bm);
-      const bruttoStunden = bruttoMinuten / 60;
+      const name     = document.getElementById("name").value;
+      const fahrzeug = document.getElementById("fahrzeug-prefix").value + "-VM " + document.getElementById("fahrzeug-nummer").value;
+      const datum    = document.getElementById("datum").value;
+      const notiz    = document.getElementById("notiz").value;
 
-      let pauseMinuten = 0;
-      if (bruttoStunden >= 8) pauseMinuten = 45;
-      else if (bruttoStunden >= 6) pauseMinuten = 30;
-
-      const nettoStunden = (bruttoMinuten - pauseMinuten) / 60;
-
-      const data = {
-        name:     document.getElementById("name").value,
-        fahrzeug: document.getElementById("fahrzeug-prefix").value + "-VM " + document.getElementById("fahrzeug-nummer").value,
-        datum:    document.getElementById("datum").value,
-        beginn,
-        ende,
-        notiz:    document.getElementById("notiz").value,
-        brutto:   Math.round(bruttoStunden * 100) / 100,
-        pause:    pauseMinuten,
-        netto:    Math.round(nettoStunden * 100) / 100,
-      };
-
+      // Für jede Schicht einen eigenen Eintrag senden
       try {
-        await fetch(APPS_SCRIPT_URL, {
-          method: "POST",
-          mode: "no-cors",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(data),
-        });
+        for (const { beginn, ende } of schichten) {
+          const [bh, bm] = beginn.split(":").map(Number);
+          const [eh, em] = ende.split(":").map(Number);
+          const bruttoMinuten = (eh * 60 + em) - (bh * 60 + bm);
+          const bruttoStunden = bruttoMinuten / 60;
+          let pauseMinuten = 0;
+          if (bruttoStunden >= 8) pauseMinuten = 45;
+          else if (bruttoStunden >= 6) pauseMinuten = 30;
+          const nettoStunden = (bruttoMinuten - pauseMinuten) / 60;
 
+          await fetch(APPS_SCRIPT_URL, {
+            method: "POST",
+            mode: "no-cors",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              name, fahrzeug, datum, beginn, ende, notiz,
+              brutto: Math.round(bruttoStunden * 100) / 100,
+              pause:  pauseMinuten,
+              netto:  Math.round(nettoStunden * 100) / 100,
+            }),
+          });
+        }
+
+        const anzahl = schichten.length;
         status.className = "status success";
-        status.textContent = "Erfolgreich eingetragen!";
+        status.textContent = anzahl > 1
+          ? `${anzahl} Schichten erfolgreich eingetragen!`
+          : "Erfolgreich eingetragen!";
         document.getElementById("zeitForm").reset();
         document.getElementById("datum").valueAsDate = new Date();
+
+        // Zusätzliche Schicht-Zeilen entfernen
+        const container = document.getElementById("schichten-container");
+        const rows = container.querySelectorAll(".schicht-row");
+        rows.forEach((row, i) => { if (i > 0) row.remove(); });
+        updateSchichtLabels();
+
       } catch (err) {
         status.className = "status error";
         status.textContent = "Fehler beim Senden. Bitte erneut versuchen.";

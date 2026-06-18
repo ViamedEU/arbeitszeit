@@ -183,6 +183,40 @@
       padding: 0 0.2rem;
     }
     .remove-schicht:hover { color: #e53e3e; }
+
+    .tabs {
+      display: flex;
+      gap: 0.3rem;
+      margin-bottom: 1.5rem;
+      background: #edf2f7;
+      padding: 0.3rem;
+      border-radius: 10px;
+    }
+    .tab-btn {
+      flex: 1;
+      padding: 0.6rem 0.4rem;
+      background: none;
+      border: none;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      font-weight: 600;
+      color: #718096;
+      cursor: pointer;
+      transition: background 0.2s, color 0.2s;
+    }
+    .tab-btn.active {
+      background: #fff;
+      color: #3182ce;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    }
+    .tab-panel { display: none; }
+    .tab-panel.active { display: block; }
+
+    input[readonly] {
+      background: #edf2f7;
+      color: #718096;
+      cursor: default;
+    }
   </style>
 </head>
 <body>
@@ -193,6 +227,13 @@
       <p>Bitte alle Felder ausfullen und absenden</p>
     </div>
 
+    <div class="tabs">
+      <button type="button" class="tab-btn active" data-tab="arbeitszeit">Arbeitszeit</button>
+      <button type="button" class="tab-btn" data-tab="urlaub">Urlaub</button>
+      <button type="button" class="tab-btn" data-tab="krank">Krankmeldung</button>
+    </div>
+
+    <div class="tab-panel active" id="panel-arbeitszeit">
     <form id="zeitForm">
       <div class="form-group">
         <label for="name">Name des Mitarbeiters</label>
@@ -242,6 +283,74 @@
       <button type="submit" id="submitBtn">Eintragen</button>
       <div class="status" id="status"></div>
     </form>
+    </div>
+
+    <div class="tab-panel" id="panel-urlaub">
+    <form id="urlaubForm">
+      <div class="form-group">
+        <label for="urlaub-name">Name des Mitarbeiters</label>
+        <input type="text" id="urlaub-name" placeholder="Vor- und Nachname" required />
+      </div>
+      <div class="row">
+        <div class="form-group">
+          <label for="urlaub-von">Von</label>
+          <input type="date" id="urlaub-von" required />
+        </div>
+        <div class="form-group">
+          <label for="urlaub-bis">Bis</label>
+          <input type="date" id="urlaub-bis" required />
+        </div>
+      </div>
+      <div class="form-group">
+        <label for="urlaub-tage">Anzahl Tage</label>
+        <input type="text" id="urlaub-tage" placeholder="wird berechnet" readonly />
+      </div>
+      <div class="form-group">
+        <label for="urlaub-notiz">Notiz (optional)</label>
+        <input type="text" id="urlaub-notiz" placeholder="" />
+      </div>
+      <button type="submit" id="urlaubBtn">Urlaub eintragen</button>
+      <div class="status" id="urlaub-status"></div>
+    </form>
+    </div>
+
+    <div class="tab-panel" id="panel-krank">
+    <form id="krankForm">
+      <div class="form-group">
+        <label for="krank-name">Name des Mitarbeiters</label>
+        <input type="text" id="krank-name" placeholder="Vor- und Nachname" required />
+      </div>
+      <div class="row">
+        <div class="form-group">
+          <label for="krank-von">Von</label>
+          <input type="date" id="krank-von" required />
+        </div>
+        <div class="form-group">
+          <label for="krank-bis">Bis</label>
+          <input type="date" id="krank-bis" required />
+        </div>
+      </div>
+      <div class="form-group">
+        <label for="krank-tage">Anzahl Tage</label>
+        <input type="text" id="krank-tage" placeholder="wird berechnet" readonly />
+      </div>
+      <div class="form-group">
+        <label for="krank-au">AU-Bescheinigung vorhanden?</label>
+        <select id="krank-au" required>
+          <option value="">--</option>
+          <option value="Ja">Ja</option>
+          <option value="Nein">Nein</option>
+          <option value="Nachgereicht">Wird nachgereicht</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label for="krank-notiz">Notiz (optional)</label>
+        <input type="text" id="krank-notiz" placeholder="" />
+      </div>
+      <button type="submit" id="krankBtn">Krankmeldung eintragen</button>
+      <div class="status" id="krank-status"></div>
+    </form>
+    </div>
   </div>
 
   <script>
@@ -319,7 +428,7 @@
         schichten.push({ beginn, ende });
       }
 
-      const name     = document.getElementById("name").value;
+      const name     = document.getElementById("name").value.trim().replace(/\s+/g, " ");
       const fahrzeug = document.getElementById("fahrzeug-prefix").value + "-VM " + document.getElementById("fahrzeug-nummer").value;
       const datum    = document.getElementById("datum").value;
       const notiz    = document.getElementById("notiz").value;
@@ -341,6 +450,7 @@
             mode: "no-cors",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
+              typ: "arbeitszeit",
               name, fahrzeug, datum, beginn, ende, notiz,
               brutto: Math.round(bruttoStunden * 100) / 100,
               pause:  pauseMinuten,
@@ -370,6 +480,106 @@
 
       btn.disabled = false;
       btn.textContent = "Eintragen";
+    });
+
+    // ===== Tab-Navigation =====
+    document.querySelectorAll(".tab-btn").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        const tab = btn.dataset.tab;
+        document.querySelectorAll(".tab-btn").forEach(b => b.classList.toggle("active", b === btn));
+        document.querySelectorAll(".tab-panel").forEach(p =>
+          p.classList.toggle("active", p.id === "panel-" + tab));
+      });
+    });
+
+    // ===== Werktage zählen (Mo–Fr, inkl. Start & Ende, ohne Wochenende) =====
+    function werktage(von, bis) {
+      const d = new Date(von), end = new Date(bis);
+      if (end < d) return 0;
+      let anzahl = 0;
+      while (d <= end) {
+        const tag = d.getDay(); // 0 = So, 6 = Sa
+        if (tag !== 0 && tag !== 6) anzahl++;
+        d.setDate(d.getDate() + 1);
+      }
+      return anzahl;
+    }
+
+    function berechneTage(prefix) {
+      const von = document.getElementById(prefix + "-von").value;
+      const bis = document.getElementById(prefix + "-bis").value;
+      const out = document.getElementById(prefix + "-tage");
+      if (!von || !bis) { out.value = ""; return; }
+      const tage = werktage(von, bis);
+      out.value = tage > 0 ? tage + (tage === 1 ? " Werktag" : " Werktage") : "";
+    }
+    ["urlaub", "krank"].forEach(function (prefix) {
+      document.getElementById(prefix + "-von").addEventListener("change", () => berechneTage(prefix));
+      document.getElementById(prefix + "-bis").addEventListener("change", () => berechneTage(prefix));
+    });
+
+    // ===== Urlaub / Krank absenden =====
+    function sendeAbwesenheit(config) {
+      const form = document.getElementById(config.formId);
+      form.addEventListener("submit", async function (e) {
+        e.preventDefault();
+        const btn = document.getElementById(config.btnId);
+        const status = document.getElementById(config.statusId);
+        const von = document.getElementById(config.prefix + "-von").value;
+        const bis = document.getElementById(config.prefix + "-bis").value;
+
+        if (bis < von) {
+          status.className = "status error";
+          status.textContent = "Das End-Datum muss nach dem Start-Datum liegen.";
+          return;
+        }
+
+        btn.disabled = true;
+        btn.textContent = "Wird eingetragen...";
+        status.className = "status";
+        status.textContent = "";
+
+        const tage = werktage(von, bis);
+        const payload = {
+          typ: config.typ,
+          name: document.getElementById(config.prefix + "-name").value.trim().replace(/\s+/g, " "),
+          von, bis, tage,
+          notiz: document.getElementById(config.prefix + "-notiz").value,
+        };
+        if (config.typ === "krank") {
+          payload.au = document.getElementById("krank-au").value;
+        }
+
+        try {
+          await fetch(APPS_SCRIPT_URL, {
+            method: "POST",
+            mode: "no-cors",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(payload),
+          });
+          status.className = "status success";
+          status.textContent = config.erfolg;
+          form.reset();
+          document.getElementById(config.prefix + "-tage").value = "";
+        } catch (err) {
+          status.className = "status error";
+          status.textContent = "Fehler beim Senden. Bitte erneut versuchen.";
+        }
+
+        btn.disabled = false;
+        btn.textContent = config.btnText;
+      });
+    }
+
+    sendeAbwesenheit({
+      formId: "urlaubForm", btnId: "urlaubBtn", statusId: "urlaub-status",
+      prefix: "urlaub", typ: "urlaub", btnText: "Urlaub eintragen",
+      erfolg: "Urlaub erfolgreich eingetragen!",
+    });
+    sendeAbwesenheit({
+      formId: "krankForm", btnId: "krankBtn", statusId: "krank-status",
+      prefix: "krank", typ: "krank", btnText: "Krankmeldung eintragen",
+      erfolg: "Krankmeldung erfolgreich eingetragen!",
     });
   </script>
 </body>

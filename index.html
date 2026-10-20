@@ -368,7 +368,22 @@
         else zeigeStammdaten();
       }).catch(() => zeigeStammdaten());
     }
-    function zeigeStammdaten() { fuelleFahrzeuge(); if (!ich) $("name-hinweis").textContent = stamm.mitarbeiter.length ? "Tippe die ersten Buchstaben deines Namens und wähle ihn aus." : "Namensliste nicht erreichbar – bitte Vor- und Nachnamen eintippen."; }
+    function zeigeStammdaten() {
+      fuelleFahrzeuge();
+      // Nur Namen aus der Liste: ein gemerkter Name, der nicht (mehr) drinsteht, muss neu gewählt werden (z. B. von der Dispo umbenannt)
+      if (ich && stamm.mitarbeiter.length) {
+        const m = stamm.mitarbeiter.find((x) => norm(x.name) === norm(ich));
+        if (!m) { setzeIch(""); $("name-hinweis").textContent = "Bitte wähle deinen Namen neu aus der Liste."; return; }
+        if (m.name !== ich) setzeIch(m.name);
+      }
+      if (!ich) $("name-hinweis").textContent = stamm.mitarbeiter.length ? "Tippe die ersten Buchstaben deines Namens und wähle ihn aus." : "Namensliste nicht erreichbar – bitte Internet prüfen und die Seite neu laden.";
+    }
+    // Backend meldet „Name nicht in der Liste“: Namen zurücksetzen und Liste neu laden
+    function nameUngueltig(r, mid) {
+      if (r.status !== "name") return false;
+      setzeIch(""); ladeStammdaten(); meldung(mid, r.message); window.scrollTo({ top: 0, behavior: "smooth" });
+      return true;
+    }
 
     // ---------- Wer bin ich ----------
     let ich = speicher("az_name") || "";
@@ -387,15 +402,12 @@
     function zeigeTreffer() {
       const q = norm(suche.value).split(/\s+/).filter(Boolean);
       if (!q.length) { liste.hidden = true; suche.setAttribute("aria-expanded", "false"); return; }
-      if (!stamm.mitarbeiter.length) {
-        treffer = [{ name: suche.value.trim().replace(/\s+/g, " "), frei: true }];
-      } else {
-        treffer = stamm.mitarbeiter.filter((m) => { const n = norm(m.name); return q.every((t) => n.split(" ").some((w) => w.indexOf(t) === 0) || n.indexOf(t) !== -1); }).slice(0, 40);
-      }
+      // nur Namen aus der Mitarbeiterliste – eigene Namen eintippen geht nicht (pflegt die Dispo)
+      treffer = stamm.mitarbeiter.filter((m) => { const n = norm(m.name); return q.every((t) => n.split(" ").some((w) => w.indexOf(t) === 0) || n.indexOf(t) !== -1); }).slice(0, 40);
       markiert = 0;
       liste.innerHTML = treffer.length
-        ? treffer.map((m, i) => '<li role="option" data-i="' + i + '" aria-selected="' + (i === 0) + '">' + (m.frei ? "Weiter als „" + esc(m.name) + "“" : esc(m.name)) + (m.standort ? "<small>" + esc(m.standort) + "</small>" : "") + "</li>").join("")
-        : '<li class="leer">Kein Treffer – Name richtig geschrieben? Sonst bitte in der Dispo melden.</li>';
+        ? treffer.map((m, i) => '<li role="option" data-i="' + i + '" aria-selected="' + (i === 0) + '">' + esc(m.name) + (m.standort ? "<small>" + esc(m.standort) + "</small>" : "") + "</li>").join("")
+        : '<li class="leer">' + (stamm.mitarbeiter.length ? "Kein Treffer – Name richtig geschrieben? Sonst bitte in der Dispo melden." : "Namensliste nicht erreichbar – bitte Internet prüfen und die Seite neu laden.") + "</li>";
       liste.hidden = false; suche.setAttribute("aria-expanded", "true");
     }
     function waehle(i) { const m = treffer[i]; if (!m || !m.name) return; liste.hidden = true; setzeIch(m.name); }
@@ -580,7 +592,7 @@
         const ja = await dialog({ art: "warn", titel: "Schon eingetragen", html: "<p>Für <b>" + tag + "</b> hast du schon:</p><ul>" + vorh + "</ul><p style=\"margin-top:.6rem\">Deine neue Zeit überschneidet sich damit. Trotzdem speichern?</p>",
           knoepfe: [{ text: "Abbrechen", wert: false, haupt: true }, { text: "Trotzdem speichern", wert: true }] });
         if (ja) await sendeArbeitszeit(Object.assign({}, body, { bestaetigt: true }));
-      } else {
+      } else if (!nameUngueltig(r, "m-arbeit")) {
         meldung("m-arbeit", "Nicht gespeichert: " + (r.message || "unbekannter Fehler"));
       }
     }
@@ -623,7 +635,7 @@
           $("f-" + (typ === "urlaub" ? "urlaub" : "krank")).reset(); anzeige();
         } else if (r.status === "doppelt") {
           await dialog({ art: "info", titel: "Schon gespeichert", html: "<p>" + esc(r.message) + " (" + zeitraum + ")</p>" });
-        } else meldung(mid, "Nicht gespeichert: " + (r.message || "unbekannter Fehler"));
+        } else if (!nameUngueltig(r, mid)) meldung(mid, "Nicht gespeichert: " + (r.message || "unbekannter Fehler"));
       });
     }
     abwesenheit("u", "urlaub", 8);
@@ -641,6 +653,8 @@
             { kennzeichen: "SLE-VM 300", name: "BUS 6", kategorie: "BUS" }, { kennzeichen: "SLE-VM 104", name: "LMW 4", kategorie: "LMW" }, { kennzeichen: "EU-VM 320", name: "TSW 3", kategorie: "TSW" }] });
       },
       post(b) {
+        if (!["anna beispiel", "berta probe", "carl muster", "dana test", "emil entwurf", "frieda vorlage"].includes(norm(b.name)))
+          return this.warte({ status: "name", message: "„" + b.name + "“ steht nicht in der Mitarbeiterliste. Bitte deinen Namen aus der Liste wählen oder in der Dispo melden." });
         if (b.typ !== "arbeitszeit") return this.warte({ status: "ok", tage: werktage(b.von, b.bis), netto: werktage(b.von, b.bis) * (b.typ === "urlaub" ? 8 : 5) });
         const vorh = this.eintraege.filter((e) => norm(e.name) === norm(b.name) && e.datum === b.datum);
         const neu = b.schichten.filter((s) => !vorh.some((v) => v.beginn === s.beginn && v.ende === s.ende));

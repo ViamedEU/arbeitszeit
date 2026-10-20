@@ -133,6 +133,12 @@
     .box.warn { background: var(--gelb-hell); color: var(--gelb); }
     .box.fehler { background: var(--rot-hell); color: var(--rot); }
     .box.info { background: var(--akzent-hell); color: var(--akzent-text); }
+    .antrag-z { display: flex; align-items: center; gap: 0.6rem; padding: 0.65rem 0; border-top: 1px solid #edf2ee; font-size: 0.9rem; }
+    .antrag-z:first-of-type { border-top: none; } .antrag-z b { color: var(--tinte); } .antrag-z small { display: block; color: var(--leise); font-size: 0.78rem; }
+    .antrag-z .status { margin-left: auto; white-space: nowrap; }
+    .status.wartet { background: #fff4dc; color: #b45309; } .status.genehmigt { background: #e6f5fd; color: #0369a1; } .status.abgelehnt, .status.zurückgezogen { background: #f1f5f2; color: var(--leise); }
+    .link-klein { border: none; background: none; color: var(--rot); font-weight: 800; font-size: 0.8rem; cursor: pointer; padding: 0.2rem 0; }
+    .rest { font-size: 0.88rem; color: var(--tinte); margin-bottom: 0.4rem; } .rest small { color: var(--leise); }
 
     /* Senden */
     .senden-leiste { position: sticky; bottom: 0; z-index: 10; display: flex; align-items: center; gap: 0.85rem; margin: 0 -1rem; padding: 0.8rem 1rem calc(0.8rem + env(safe-area-inset-bottom));
@@ -270,6 +276,11 @@
           <button type="submit" class="btn-senden" id="b-urlaub">Urlaub eintragen</button>
         </div>
         <div class="meldung" id="m-urlaub"></div>
+        <section class="karte" id="u-antraege" hidden>
+          <label>Meine Urlaubsanträge</label>
+          <div class="rest" id="u-rest"></div>
+          <div id="u-liste"></div>
+        </section>
       </form>
 
       <!-- Krank -->
@@ -337,12 +348,24 @@
       const pause = brutto >= 480 ? 45 : brutto >= 360 ? 30 : 0;
       return { brutto: brutto, pause: pause, netto: (brutto - pause) / 60 };
     }
+    // Feiertage NRW zählen nicht als Werktag / Urlaubstag (wie im Backend)
+    const feiertagCache = {};
+    function feiertageNRW(j) {
+      const a = j % 19, b = Math.floor(j / 100), c = j % 100, d = Math.floor(b / 4), e = b % 4, f = Math.floor((b + 8) / 25), g = Math.floor((b - f + 1) / 3);
+      const h = (19 * a + b - d - g + 15) % 30, i = Math.floor(c / 4), k = c % 4, l = (32 + 2 * e + 2 * i - h - k) % 7, m = Math.floor((a + 11 * h + 22 * l) / 451);
+      const ostern = new Date(j, Math.floor((h + l - 7 * m + 114) / 31) - 1, ((h + l - 7 * m + 114) % 31) + 1, 12);
+      const o = (n) => { const x = new Date(ostern.getTime() + n * 86400000); return x.getFullYear() + "-" + String(x.getMonth() + 1).padStart(2, "0") + "-" + String(x.getDate()).padStart(2, "0"); };
+      return { [j + "-01-01"]: 1, [o(-2)]: 1, [o(1)]: 1, [j + "-05-01"]: 1, [o(39)]: 1, [o(50)]: 1, [o(60)]: 1, [j + "-10-03"]: 1, [j + "-11-01"]: 1, [j + "-12-25"]: 1, [j + "-12-26"]: 1 };
+    }
+    function feiertag(iso) { const j = +iso.slice(0, 4); return !!(feiertagCache[j] = feiertagCache[j] || feiertageNRW(j))[iso]; }
     function werktage(von, bis) {
       if (!von || !bis || bis < von) return 0;
       const d = alsDatum(von), e = alsDatum(bis); let n = 0;
-      while (d <= e) { const t = d.getDay(); if (t !== 0 && t !== 6) n++; d.setDate(d.getDate() + 1); }
+      while (d <= e) { const t = d.getDay(), iso = d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0"); if (t !== 0 && t !== 6 && !feiertag(iso)) n++; d.setDate(d.getDate() + 1); }
       return n;
     }
+    // Urlaub wird ab Backend 2.7 beantragt (die Dispo genehmigt), vorher direkt eingetragen
+    function antragModus() { if (DEMO) return true; const v = String(stamm.version || "0.0").split(".").map(Number); return v[0] > 2 || (v[0] === 2 && v[1] >= 7); }
 
     // ---------- Backend ----------
     function mitTimeout(promise, ms) {
@@ -364,12 +387,14 @@
     function ladeStammdaten() {
       try { const alt = JSON.parse(speicher("az_stamm_v2") || "null"); if (alt) { stamm = alt; zeigeStammdaten(); } } catch (e) {}
       apiGet({ action: "stammdaten" }).then((j) => {
-        if (j && j.status === "ok") { stamm = { mitarbeiter: j.mitarbeiter || [], fahrzeuge: j.fahrzeuge || [] }; speicher("az_stamm_v2", JSON.stringify(stamm)); zeigeStammdaten(); }
+        if (j && j.status === "ok") { stamm = { mitarbeiter: j.mitarbeiter || [], fahrzeuge: j.fahrzeuge || [], version: j.version || "" }; speicher("az_stamm_v2", JSON.stringify(stamm)); zeigeStammdaten(); }
         else zeigeStammdaten();
       }).catch(() => zeigeStammdaten());
     }
     function zeigeStammdaten() {
       fuelleFahrzeuge();
+      $("b-urlaub").textContent = antragModus() ? "Urlaub beantragen" : "Urlaub eintragen";
+      ladeAntraege();
       // Nur Namen aus der Liste: ein gemerkter Name, der nicht (mehr) drinsteht, muss neu gewählt werden (z. B. von der Dispo umbenannt)
       if (ich && stamm.mitarbeiter.length) {
         const m = stamm.mitarbeiter.find((x) => norm(x.name) === norm(ich));
@@ -396,6 +421,7 @@
         $("avatar").textContent = (teile[0][0] + (teile.length > 1 ? teile[teile.length - 1][0] : "")).toUpperCase();
         $("gruss").textContent = "Hallo " + teile[0] + "!";
       } else { $("gruss").textContent = "Arbeitszeit"; $("name-suche").value = ""; }
+      if (typeof antraegeLaden !== "undefined") ladeAntraege();
     }
     const suche = $("name-suche"), liste = $("name-liste");
     let treffer = [], markiert = 0;
@@ -618,7 +644,8 @@
         if (!von.value || !bis.value) { meldung(mid, "Bitte Von und Bis angeben."); return; }
         if (bis.value < von.value) { meldung(mid, "Das End-Datum muss nach dem Start-Datum liegen."); return; }
         if (!werktage(von.value, bis.value)) { meldung(mid, "Im Zeitraum liegt kein Werktag."); return; }
-        const body = { typ: typ, version: 2, name: ich, von: von.value, bis: bis.value, notiz: $(prefix + "-notiz").value.trim() };
+        const antrag = typ === "urlaub" && antragModus();
+        const body = { typ: antrag ? "urlaubsantrag" : typ, version: 2, name: ich, von: von.value, bis: bis.value, notiz: $(prefix + "-notiz").value.trim() };
         if (typ === "krank") {
           const au = document.querySelector('input[name="au"]:checked');
           if (!au) { meldung(mid, "Bitte angeben, ob eine AU-Bescheinigung da ist."); return; }
@@ -630,7 +657,10 @@
         try { r = await apiPost(body); } catch (e) { sendeKnopf(btn, false); meldung(mid, "Keine Verbindung – nichts gespeichert. Bitte erneut senden."); return; }
         sendeKnopf(btn, false);
         const zeitraum = esc(datumKurz(body.von)) + " – " + esc(datumKurz(body.bis));
-        if (r.status === "ok") {
+        if (r.status === "ok" && antrag) {
+          await dialog({ titel: "Antrag gestellt", html: '<div class="gross">' + r.tage + (r.tage === 1 ? " Tag" : " Tage") + "</div><p>" + zeitraum + "</p><p>Die Dispo entscheidet. Den Stand siehst du unten unter „Meine Urlaubsanträge“.</p>", knoepfe: [{ text: "Fertig", wert: true, haupt: true }] });
+          $("f-urlaub").reset(); anzeige(); ladeAntraege();
+        } else if (r.status === "ok") {
           await dialog({ titel: typ === "urlaub" ? "Urlaub eingetragen" : "Gute Besserung!", html: '<div class="gross">' + r.tage + (r.tage === 1 ? " Tag" : " Tage") + "</div><p>" + zeitraum + "</p>" + (typ === "krank" ? "<p>Krankmeldung ist eingetragen.</p>" : ""), knoepfe: [{ text: "Fertig", wert: true, haupt: true }] });
           $("f-" + (typ === "urlaub" ? "urlaub" : "krank")).reset(); anzeige();
         } else if (r.status === "doppelt") {
@@ -639,14 +669,39 @@
       });
     }
     abwesenheit("u", "urlaub", 8);
+
+    // ---------- Meine Urlaubsanträge (Status + Resturlaub) ----------
+    let antraegeLaden = 0;
+    async function ladeAntraege() {
+      const box = $("u-antraege");
+      if (!ich || !antragModus()) { box.hidden = true; return; }
+      const nr = ++antraegeLaden;
+      let r;
+      try { r = await apiPost({ typ: "meineantraege", name: ich }); } catch (e) { return; }
+      if (nr !== antraegeLaden || r.status !== "ok") { if (r && r.status === "name") box.hidden = true; return; }
+      const k = r.konto || {};
+      $("u-rest").innerHTML = k.anspruch == null ? "" : "Resturlaub " + esc(k.jahr) + ": <b>" + (Math.round(k.rest * 10) / 10).toLocaleString("de-DE") + " Tage</b> <small>(Anspruch " + k.anspruch.toLocaleString("de-DE") + ", genommen " + k.genommen + (k.beantragt ? ", beantragt " + k.beantragt : "") + ")</small>";
+      const txt = { beantragt: "wartet", genehmigt: "genehmigt", abgelehnt: "abgelehnt", "zurückgezogen": "zurückgezogen" };
+      $("u-liste").innerHTML = r.antraege.length ? r.antraege.map((a) => '<div class="antrag-z"><div><b>' + esc(datumKurz(a.von)) + " – " + esc(datumKurz(a.bis)) + "</b><small>" + a.tage + (a.tage === 1 ? " Tag" : " Tage") +
+        (a.antwort ? " · Dispo: „" + esc(a.antwort) + "“" : "") + "</small>" + (a.status === "beantragt" ? '<button type="button" class="link-klein" data-zurueck="' + esc(a.id) + '">Zurückziehen</button>' : "") + "</div>" +
+        '<span class="pill status ' + (txt[a.status] === "wartet" ? "wartet" : esc(a.status)) + '">' + esc(txt[a.status] || a.status) + "</span></div>").join("") : '<p class="hinweis-hell">Noch keine Anträge.</p>';
+      $("u-liste").querySelectorAll("[data-zurueck]").forEach((b) => b.addEventListener("click", async () => {
+        const ja = await dialog({ art: "warn", titel: "Antrag zurückziehen?", html: "<p>Der Antrag wird gelöscht. Die Dispo sieht ihn dann nicht mehr.</p>", knoepfe: [{ text: "Abbrechen", wert: false, haupt: true }, { text: "Zurückziehen", wert: true }] });
+        if (!ja) return;
+        try { await apiPost({ typ: "antrag_zurueckziehen", name: ich, id: b.dataset.zurueck }); } catch (e) {}
+        ladeAntraege();
+      }));
+      box.hidden = false;
+    }
     abwesenheit("k", "krank", 5);
 
     // ---------- Demo (nur mit ?demo – erfundene Daten, nichts wird gespeichert) ----------
     const Demo = {
       eintraege: [{ name: "Berta Probe", datum: heuteIso(), beginn: "06:00", ende: "10:00", fahrzeug: "SLE-VM 300" }],
       warte: (x) => new Promise((r) => setTimeout(() => r(x), 700)),
+      antraege: [{ id: "D1", name: "Berta Probe", von: "2026-10-05", bis: "2026-10-06", tage: 2, status: "genehmigt", antwort: "" }, { id: "D2", name: "Berta Probe", von: "2026-08-10", bis: "2026-08-14", tage: 5, status: "abgelehnt", antwort: "Bitte eine Woche später" }],
       get() {
-        return this.warte({ status: "ok", mitarbeiter: [
+        return this.warte({ status: "ok", version: "2.7", mitarbeiter: [
           { name: "Anna Beispiel", standort: "EU" }, { name: "Berta Probe", standort: "EU/BN" }, { name: "Carl Muster", standort: "BN" },
           { name: "Dana Test", standort: "AHR" }, { name: "Emil Entwurf", standort: "EU" }, { name: "Frieda Vorlage", standort: "EU" }],
           fahrzeuge: [{ kennzeichen: "EU-VM 101", name: "BTW 1", kategorie: "BTW" }, { kennzeichen: "EU-VM 913", name: "BTW 8", kategorie: "BTW" },
@@ -655,6 +710,16 @@
       post(b) {
         if (!["anna beispiel", "berta probe", "carl muster", "dana test", "emil entwurf", "frieda vorlage"].includes(norm(b.name)))
           return this.warte({ status: "name", message: "„" + b.name + "“ steht nicht in der Mitarbeiterliste. Bitte deinen Namen aus der Liste wählen oder in der Dispo melden." });
+        if (b.typ === "meineantraege") {
+          const eigene = this.antraege.filter((a) => norm(a.name) === norm(b.name)), gen = eigene.filter((a) => a.status === "genehmigt").reduce((s2, a) => s2 + a.tage, 0), bea = eigene.filter((a) => a.status === "beantragt").reduce((s2, a) => s2 + a.tage, 0);
+          return this.warte({ status: "ok", antraege: eigene.slice().reverse(), konto: { jahr: "2026", anspruch: 26, genommen: gen, beantragt: bea, rest: 26 - gen - bea } });
+        }
+        if (b.typ === "antrag_zurueckziehen") { const a = this.antraege.find((x) => x.id === b.id); if (a) a.status = "zurückgezogen"; return this.warte({ status: "ok" }); }
+        if (b.typ === "urlaubsantrag") {
+          if (this.antraege.some((a) => norm(a.name) === norm(b.name) && (a.status === "beantragt" || a.status === "genehmigt") && !(a.von > b.bis || a.bis < b.von))) return this.warte({ status: "doppelt", message: "Für diesen Zeitraum gibt es schon einen Antrag." });
+          this.antraege.push({ id: "D" + (this.antraege.length + 1), name: b.name, von: b.von, bis: b.bis, tage: werktage(b.von, b.bis), status: "beantragt", antwort: "" });
+          return this.warte({ status: "ok", tage: werktage(b.von, b.bis), von: b.von, bis: b.bis });
+        }
         if (b.typ !== "arbeitszeit") return this.warte({ status: "ok", tage: werktage(b.von, b.bis), netto: werktage(b.von, b.bis) * (b.typ === "urlaub" ? 8 : 5) });
         const vorh = this.eintraege.filter((e) => norm(e.name) === norm(b.name) && e.datum === b.datum);
         const neu = b.schichten.filter((s) => !vorh.some((v) => v.beginn === s.beginn && v.ende === s.ende));
